@@ -1,0 +1,680 @@
+
+
+import {SHAPE_COORDS} from './Shape';
+
+cc.Class({
+    extends: cc.Component,
+
+    properties: {
+        tilePrefab: cc.Prefab,                  // 方块预制
+        shapeBoard: cc.Node,                    // 添加方块的节点
+        gameOverNode: cc.Node,                  // Game Over图片节点
+        restartNode: cc.Node,                   // 重新开始按钮节点
+        pauseResumeBtn: cc.Node,                // 暂停按钮节点
+        pausePic: cc.SpriteFrame,               // 暂停图片
+        resumePic: cc.SpriteFrame,              // 继续图片
+        scoreLabel: cc.Label, 
+		finscore: cc.Label,                     // 分数文本
+        ranksNode: cc.Node,                     // 排行榜按钮
+        wxSubContextView: cc.Node,              // 主域视窗容器
+        shareNode: cc.Node,  
+		endmanger: {
+			default: null,
+			type: cc.Node},// 分享按钮
+        // 音频
+        bgAudio: {
+            default: null,
+            type: cc.AudioClip
+        },
+        btnAudio: {
+            default: null,
+            type: cc.AudioClip
+        },
+        dropAudio: {
+            default: null,
+            type: cc.AudioClip
+        },
+        pauseResumeAudio: {
+            default: null,
+            type: cc.AudioClip
+        },
+        removeAudio: {
+            default: null,
+            type: cc.AudioClip
+        },
+        loseAudio: {
+            default: null,
+            type: cc.AudioClip
+        },
+		timer: cc.Node,
+
+		scoreDisplay: {default: null,type: cc.Label},
+    },
+
+    // LIFE-CYCLE CALLBACKS:
+
+    onLoad () {  
+     
+    },
+	on_start_click(){
+		cc.debug.setDisplayStats(false);
+        
+        // 微信小游戏玩家授权
+        this.initUserInfoButton();
+        // 监听被动转发
+        this.passiveShare();
+
+        // 行列数
+        this.row = 22;
+        this.col = 12;
+
+        // 每个区域的宽高(即方块宽高)
+        this.tileWidth = this.node.width / this.col;
+        this.tileHeight = this.node.height / this.row;
+
+        // 方块节点池
+        this.tilePool = new cc.NodePool();
+
+        // 制作形状
+        this.makeShape();
+
+        // 保存已经下落完毕的方块
+        this.confirmedTileArray = [];
+
+        // 添加计时器，让方块每0.5秒往下移动一步
+        this.schedule(this.moveDown, 0.5);
+
+        // 用于判断是否已经暂停
+        this.isPaused = false;    
+        // 分数 
+        this.score = 0;  
+		//this.timer.getComponent("timer").gameScript = this.node.getComponent("Game");
+        // 播放背景音乐
+        cc.audioEngine.playMusic(this.bgAudio, true);    
+        cc.audioEngine.setMusicVolume(0.2);  
+	},
+	on_start_click1(){
+		cc.debug.setDisplayStats(false);
+        
+        // 微信小游戏玩家授权
+        this.initUserInfoButton();
+        // 监听被动转发
+        this.passiveShare();
+
+        // 行列数
+        this.row = 22;
+        this.col = 12;
+
+        // 每个区域的宽高(即方块宽高)
+        this.tileWidth = this.node.width / this.col;
+        this.tileHeight = this.node.height / this.row;
+
+        // 方块节点池
+        this.tilePool = new cc.NodePool();
+
+        // 制作形状
+        this.makeShape();
+
+        // 保存已经下落完毕的方块
+        this.confirmedTileArray = [];
+
+        // 添加计时器，让方块每0.5秒往下移动一步
+        this.schedule(this.moveDown, 0.5);
+
+        // 用于判断是否已经暂停
+        this.isPaused = false;    
+        // 分数 
+        this.score = 0;  
+		this.timer.getComponent("timer").gameScript = this.node.getComponent("Game");
+        // 播放背景音乐
+        cc.audioEngine.playMusic(this.bgAudio, true);    
+        cc.audioEngine.setMusicVolume(0.2);  
+	},
+	toScene: function(){
+       cc.director.loadScene("俄罗斯方块-挑战模式")
+    },
+    toPlayScene: function(){
+       cc.director.loadScene("俄罗斯方块")
+    },
+
+    makeShape() {
+        // 生成形状
+        this.shapeTileArray = [];                                   // 用来保存当前形状中的所有方块
+        this.color = this.getColor();                               // 当前形状颜色
+        let startX = Math.floor(Math.random()*(this.col-4))+2;      // 横向起始位置
+        let startY = 2;                                             // 纵向起始位置
+        let x = startX * this.tileWidth;                            // 关键方块x坐标
+        let y = startY * this.tileHeight;                           // 关键方块y坐标
+        
+        let keyTile = this.getTile();                               // 关键方块(旋转中心点)
+        keyTile.color = this.color;
+        keyTile.position = cc.v2(x, y);
+        keyTile.width = this.tileWidth;
+        keyTile.height = this.tileHeight;
+        this.shapeBoard.addChild(keyTile);
+        this.shapeTileArray.push(keyTile);
+
+        let coords = this.getShapeCoords();                         // 随机获取一个形状坐标
+        for (let i=1; i<coords.length; i++) {
+            let x = (coords[i][0]+startX)*this.tileWidth;           // 其他方块相对于关键方块的x坐标
+            let y = (coords[i][1]+startY)*this.tileHeight;          // 其他方块相对于关键方块的y坐标
+
+            let tile = this.getTile();                              // 生成方块
+            tile.color = this.color;
+            tile.position = cc.v2(x, y);
+            tile.width = this.tileWidth;
+            tile.height = this.tileHeight;
+            this.shapeBoard.addChild(tile);
+            this.shapeTileArray.push(tile)
+        }
+    },
+
+    getColor() {
+        // 设置随机颜色
+        let red = Math.round(Math.random()*255);
+        let green = Math.round(Math.random()*255);
+        let blue = Math.round(Math.random()*255);
+        return new cc.Color(red, green, blue);
+    },
+
+    getTile () {
+        // 生成方块预制
+        let tile = null;
+        if (this.tilePool.size() > 0) {               // 如果节点池中有方块，那从节点池中获取
+            tile = this.tilePool.get();
+        }
+        else {                                        // 否则调用cc.instantiate()生成
+            tile = cc.instantiate(this.tilePrefab);
+        }
+        return tile;
+    },
+
+    getShapeCoords() {
+        // 随机获取一种形状
+        let shapeArray = ['squareShape', 'lineShape', 'tShape', 'zShape', 'zShapeMirror', 'lShape', 'lShapeMirror'];
+        this.shape = shapeArray[Math.floor(Math.random()*shapeArray.length)];
+        
+        // 随机获取该形状的某种形态，形态的索引保存在this.num中
+        let coordsArray = SHAPE_COORDS[this.shape];
+        this.num = Math.floor(Math.random()*coordsArray.length);  
+
+        // 返回坐标
+        return coordsArray[this.num];
+    },
+
+    leftBtn() {
+        // 左移
+        if (this.isPaused)
+            return;
+
+        cc.audioEngine.playEffect(this.btnAudio, false);//调音乐
+
+        for (let i=0; i<this.shapeTileArray.length; i++) {
+            let x = Math.round(this.shapeTileArray[i].x - this.tileWidth);
+            let y = Math.round(this.shapeTileArray[i].y);
+            
+            // 防止出界
+            if (x < 0)  {
+                return;
+            }
+
+            // 如果与其他方块重合，则不能移动
+            for (let j=0; j<this.confirmedTileArray.length; j++) {
+                let confirmedX = Math.round(this.confirmedTileArray[j].x);
+                let confirmedY = Math.round(this.confirmedTileArray[j].y);
+                if (confirmedX==x && confirmedY==y) {
+                    return;
+                }
+            }
+        }
+
+        // 当前形状中的方块全部左移一步
+        for (let i=0; i<this.shapeTileArray.length; i++) {
+            this.shapeTileArray[i].x -= this.tileWidth;
+        }
+    },
+
+    rotateBtn() {
+        // 旋转
+        if (this.isPaused)
+            return;
+        
+        cc.audioEngine.playEffect(this.btnAudio, false);
+
+        // 如果形状只有一种变化形式，则直接返回
+        let temp = this.num;
+        if(SHAPE_COORDS[this.shape].length == 1) 
+            return;
+        else {
+            if (this.num+1 == SHAPE_COORDS[this.shape].length) 
+                this.num = 0;
+            else 
+                this.num += 1;
+        }
+
+        let keyTile = this.shapeTileArray[0];               // 获取关键方块
+        let coords = SHAPE_COORDS[this.shape][this.num];    // 获取旋转后的坐标
+
+        // 如果旋转后会超出边界或者与其他已存在的方块重合，则不旋转
+        for (let i=1; i<coords.length; i++) {
+            let x = Math.round(keyTile.x + coords[i][0]*this.tileWidth);
+            let y = Math.round(keyTile.y + coords[i][1]*this.tileHeight);
+
+            // 是否超出边界
+            if (x<0 || x>=this.shapeBoard.width || Math.abs(y)>=this.shapeBoard.height) {  //abs() 方法可返回一个数的绝对值。
+                this.num = temp;
+                return;
+            }
+
+            // 如果与其他方块重合，则不旋转
+            for (let j=0; j<this.confirmedTileArray.length; j++) {
+                let confirmedX = Math.round(this.confirmedTileArray[j].x);
+                let confirmedY = Math.round(this.confirmedTileArray[j].y);
+                if (confirmedX == x && confirmedY == y) {
+                    this.num = temp;
+                    return;
+                }
+
+            }
+        }
+
+        // 根据坐标重新设置其他三个方块
+        for (let i=1; i<coords.length; i++) {
+            let x = coords[i][0]*this.tileWidth + keyTile.x;
+            let y = coords[i][1]*this.tileHeight + keyTile.y;
+
+            let tile = this.shapeTileArray[i];      
+            tile.position = cc.v2(x, y);
+        }
+    },
+
+    dropBtn() {
+        // 下落
+        if (this.isPaused)
+            return;
+
+        cc.audioEngine.playEffect(this.dropAudio, false);
+
+        while (true) {
+            let temp = this.moveDown();
+            if (!temp)
+                return;
+        }
+    },
+
+    rightBtn() {
+        // 右移
+        if (this.isPaused)
+            return;
+
+        cc.audioEngine.playEffect(this.btnAudio, false);
+
+        for (let i=0; i<this.shapeTileArray.length; i++) {
+            let x = Math.round(this.shapeTileArray[i].x + this.tileWidth);
+            let y = Math.round(this.shapeTileArray[i].y);
+            
+            // 防止出界
+            if (x >= this.shapeBoard.width)  {
+                return;
+            }
+
+            // 如果与其他方块重合，则不能移动
+            for (let j=0; j<this.confirmedTileArray.length; j++) {
+                let confirmedX = Math.round(this.confirmedTileArray[j].x);
+                let confirmedY = Math.round(this.confirmedTileArray[j].y);
+                if (confirmedX==x && confirmedY==y) {
+                    return;
+                }
+
+            }
+        }
+
+        // 当前形状中的方块全部右移一步
+        for (let i=0; i<this.shapeTileArray.length; i++) {
+            this.shapeTileArray[i].x += this.tileWidth;
+        }
+    },
+
+    moveDown () {
+        // 往下移动一步
+        for (let i=0; i<this.shapeTileArray.length; i++) {
+            let x = Math.round(this.shapeTileArray[i].x);
+            let y = Math.round(this.shapeTileArray[i].y - this.tileHeight);
+
+            // 如果触底，则不再下降
+            if (Math.abs(y) >= this.shapeBoard.height)  {
+                this.shapeTileArray.forEach(element => {               
+                    this.confirmedTileArray.push(element);
+                });
+
+                this.removeLines();                                     // 消除方块
+                this.makeShape();                                       // 重新生成形状
+                return false;
+            }
+
+
+            // 如果碰到其他方块，则不再下降
+            for (let j=0; j<this.confirmedTileArray.length; j++) {
+                let confirmedX = Math.round(this.confirmedTileArray[j].x);
+                let confirmedY = Math.round(this.confirmedTileArray[j].y);
+
+                if (confirmedX==x && confirmedY==y) {
+                    this.shapeTileArray.forEach(element => {            
+                        this.confirmedTileArray.push(element);
+                    });
+
+                    if (this.judgeLose()) {
+                        this.lose();                                    
+                    }
+                    else {
+                        this.removeLines();                             
+                        this.makeShape();                               
+                    }
+                    return false;
+                }
+            }
+        }
+
+        // 方块全部下降
+        for (let i=0; i<this.shapeTileArray.length; i++) {
+            this.shapeTileArray[i].y -= this.tileHeight;
+        }
+       
+        return true;
+    },
+
+    removeLines() {
+        // 消除fangkaui
+        let lines = [];                                 
+        for (let i=0; i<this.row; i++) {
+            let tempWidth = 0;                          // 如果满足就进行消除
+            let tempTile = [];                          
+            let y = Math.round(-i*this.tileHeight);     
+
+            
+            for (let j=0; j<this.confirmedTileArray.length; j++) {
+                let confirmedY = Math.round(this.confirmedTileArray[j].y);
+                if (y == confirmedY) {
+                    tempTile.push(this.confirmedTileArray[j]);  
+                    tempWidth += this.tileWidth;                
+                }
+            }
+            
+            // 判断tempWidth值是否等于(或超过)shapeBoard的宽度，若已经超过的话，则说明这一行已被填满
+            if (tempWidth >= this.shapeBoard.width) {
+                lines.push(i);
+                tempTile.forEach(e=>{
+                    
+                    for (let j=0; j<this.confirmedTileArray.length; j++) {
+                        if (e == this.confirmedTileArray[j])
+                            this.confirmedTileArray.splice(j, 1);
+                    }
+                    this.tilePool.put(e);                       // 回收方块
+                });
+            }
+        }
+
+        
+        if (lines.length)
+            this.dropConfirmedTiles(lines);
+    },
+
+    dropConfirmedTiles (lines) {
+        // 让其他未消除的方块下落
+        for (let i=0; i<lines.length; i++) {
+            for (let j=0; j<this.confirmedTileArray.length; j++) {
+                let confirmedY = Math.round(this.confirmedTileArray[j].y);
+                
+                // 只有消除行上方的方块才允许下降
+                if (confirmedY <= -lines[i]*this.tileHeight)
+                    continue;
+
+                this.confirmedTileArray[j].y -= this.tileHeight;
+            }
+            
+            this.addScore();
+        }
+        cc.audioEngine.playEffect(this.removeAudio, false);
+    },
+
+    judgeLose() {
+        for (let i=0; i<this.confirmedTileArray.length; i++) {
+            let confirmedY = Math.round(this.confirmedTileArray[i].y);
+
+            // 如果有任何一个方块的y坐标超出顶端，则判定输
+            if (confirmedY >= 0) 
+                return true;
+        }
+        return false;
+    },
+
+    lose () {
+        // 游戏失败
+        this.unschedule(this.moveDown);            
+
+        let fadeInAction = cc.fadeIn(1);            
+        this.gameOverNode.runAction(fadeInAction);  
+
+        this.restartNode.active = true;             
+        this.ranksNode.active = true;               
+        this.shareNode.active = true;               
+        
+        cc.audioEngine.stopMusic();                 
+        cc.audioEngine.playEffect(this.loseAudio);  
+
+        
+        this.setBestScore();
+    },
+
+    restart() {
+        // 重新开始
+        cc.audioEngine.playEffect(this.btnAudio, false);
+        cc.director.loadScene('俄罗斯方块');
+    },
+
+    pauseResume() {
+        // 游戏暂停
+        if (!this.isPaused) {
+            this.isPaused = true;                           
+            this.unschedule(this.moveDown);                 
+            
+            let btnBg = this.pauseResumeBtn.children[0];    
+            btnBg.getComponent(cc.Sprite).spriteFrame = this.resumePic;
+        }
+        else {
+            this.isPaused = false;
+			if (this.score<2)
+			{
+			 this.schedule(this.moveDown, 0.5);
+
+			};
+
+			if (this.score>=2)
+			{
+			 this.scdeu1();
+
+			};
+			if (this.score>=3)
+			{
+			this.scdeu2();
+
+			};
+            //this.schedule(this.moveDown, 1);                
+
+            let btnBg = this.pauseResumeBtn.children[0];    
+            btnBg.getComponent(cc.Sprite).spriteFrame = this.pausePic;
+        }
+
+        cc.audioEngine.playEffect(this.pauseResumeAudio, false);
+    },
+	scdeu1(){
+		 this.schedule(this.moveDown, 0.2);
+	},
+	scdeu2(){
+		 this.schedule(this.moveDown, 0.1);
+	},
+    addScore() {
+       
+        this.score += 1;
+        this.scoreLabel.string = "分数：" + String(this.score);
+		if (this.score>=10)
+		{
+			 this.scdeu1();
+
+		};
+		if (this.score>=20)
+		{
+			this.scdeu2();
+
+		};
+		//this.finscore.string = '最终成绩为: ' + this.score;
+    },
+
+    setBestScore () {
+        // 首先从本地获取历史最高分
+        let bestScore = cc.sys.localStorage.getItem('bestScore');
+
+       
+        if (!bestScore) {
+            // 记录到本地
+            cc.sys.localStorage.setItem('bestScore', String(this.score));
+
+            // wx.setUserCloudStorage这个API来更新云托管分数
+            let newKVData = {key: 'score', value: String(this.score)};
+            this.setNewCloudScore(newKVData);
+        }
+        // 如果有玩过，那bestScore是肯定存在的(因为第一次玩的时候我们就会添加bestScore)
+        else {
+            if (this.score > Number(bestScore)) {
+                // 记录到本地
+                cc.sys.localStorage.setItem('bestScore', String(this.score));
+
+                // wx.setUserCloudStorage这个API来更新云托管分数
+                let newKVData = {key: 'score', value: String(this.score)};
+                this.setNewCloudScore(newKVData);
+            }
+        }
+    },
+
+    setNewCloudScore (newKVData) {
+        if (typeof wx === 'undefined') {
+            return;
+        }
+
+        // 设置新云托管分数(第一次游戏时，也调用该方法设置云托管分数)
+        wx.setUserCloudStorage({
+            KVDataList: [newKVData],
+            success: (res) => {
+                console.log('更新玩家分数成功！');
+            },
+            fail: (res) => {
+                console.log(res);
+            }
+        });
+    },
+
+    showRanks() {
+        // 打开和关闭排行榜
+        if (typeof wx === 'undefined') {
+            return;
+        }
+    
+        if (!this.wxSubContextView.active) {
+            // 设置容器可见
+            this.wxSubContextView.active = true;
+    
+            // 发送结算分数到开放域
+            wx.getOpenDataContext().postMessage({
+                message: 'show'
+            });
+        }
+        else {
+            // 设置容器不可见，即关闭排行榜，并让开放域清空排名信息
+            this.wxSubContextView.active = false;
+            wx.getOpenDataContext().postMessage({
+                message: 'clear'
+            });
+        }
+    },
+
+    initUserInfoButton () {
+        // 微信授权，此代码来自Cocos官方
+        if (typeof wx === 'undefined') {
+            return;
+        }
+
+        let systemInfo = wx.getSystemInfoSync();
+        let width = systemInfo.windowWidth;
+        let height = systemInfo.windowHeight;
+        let button = wx.createUserInfoButton({
+            type: 'text',
+            text: '',
+            style: {
+                left: 0,
+                top: 0,
+                width: width,
+                height: height,
+                lineHeight: 40,
+                backgroundColor: '#00000000',
+                color: '#00000000',
+                textAlign: 'center',
+                fontSize: 10,
+                borderRadius: 4
+            }
+        });
+
+        button.onTap((res) => {
+            if (res.userInfo) {
+                // 可以在这里获取当前玩家的个人信息，如头像、微信名等。
+                console.log('授权成功！');
+            }
+            else {
+                console.log('授权失败！');
+            }
+
+            button.hide();
+            button.destroy();
+        });
+    },
+
+    activeShare() {
+        // 主动分享按钮
+        if (typeof wx === 'undefined') {
+            return;
+        }
+        
+        let bestScore = cc.sys.localStorage.getItem('bestScore');
+        wx.shareAppMessage({
+            title: '这个游戏我玩了'+bestScore+'分，赶紧来超越我吧！', 
+            imageUrl: cc.url.raw('img.png'),        
+            query: 'shareMsg='+'分享卡片上所带的信息'  // query最大长度(length)为2048
+        });
+    },
+
+    passiveShare() {
+        // 监听小程序右上角菜单的「转发」按钮
+        if (typeof wx === 'undefined') {
+            return;
+        }
+    
+        // 显示当前页面的转发按钮
+        wx.showShareMenu({
+            success: (res) => {
+                console.log('开启被动转发成功！');
+            },
+            fail: (res) => {
+                console.log(res);
+                console.log('开启被动转发失败！');
+            }
+        });
+    
+        let bestScore = cc.sys.localStorage.getItem('bestScore');
+        wx.onShareAppMessage(() => {
+            return {
+                title: '这个游戏我玩了'+bestScore+'分，赶紧来超越我吧！',
+                imageUrl: cc.url.raw('img.png'),        // 分享图片要放在 wechatgame/res/raw-assets 路径下
+                query: 'shareMsg='+'分享卡片上所带的信息' 
+            }
+        });
+    },
+});
